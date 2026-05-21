@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 type FeedbackItem = {
   id: string;
@@ -8,12 +8,15 @@ type FeedbackItem = {
   message: string;
   createdAt: string;
   editedAt?: string;
+  imageUrl?: string;
 };
 
 export default function Home() {
   const [items, setItems] = useState<FeedbackItem[]>([]);
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -22,6 +25,7 @@ export default function Home() {
   const [editMessage, setEditMessage] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   async function loadFeedback() {
     setLoading(true);
@@ -42,6 +46,19 @@ export default function Home() {
     loadFeedback();
   }, []);
 
+  function handleImageChange(file: File | null) {
+    setImageFile(file);
+    setImagePreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  }
+
+  function clearImage() {
+    handleImageChange(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim() || !message.trim()) return;
@@ -49,10 +66,14 @@ export default function Home() {
     setSubmitting(true);
     setError(null);
     try {
+      const formData = new FormData();
+      formData.append("name", name);
+      formData.append("message", message);
+      if (imageFile) formData.append("image", imageFile);
+
       const res = await fetch("/api/feedback", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, message }),
+        body: formData,
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as {
@@ -64,6 +85,7 @@ export default function Home() {
       setItems((prev) => [data.item, ...prev]);
       setName("");
       setMessage("");
+      clearImage();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -183,6 +205,46 @@ export default function Home() {
                 maxLength={1000}
                 className="resize-y rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-blue-500/30 transition focus:border-blue-500 focus:ring-4 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-50"
               />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="image"
+                className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Image{" "}
+                <span className="font-normal text-zinc-500 dark:text-zinc-400">
+                  (optional)
+                </span>
+              </label>
+              <input
+                ref={fileInputRef}
+                id="image"
+                name="image"
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  handleImageChange(e.target.files?.[0] ?? null)
+                }
+                className="block w-full cursor-pointer rounded-lg border border-zinc-300 bg-white text-sm text-zinc-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-xs file:font-medium file:text-zinc-700 hover:file:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:file:bg-zinc-800 dark:file:text-zinc-200 dark:hover:file:bg-zinc-700"
+              />
+              {imagePreview && (
+                <div className="mt-2 flex items-start gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagePreview}
+                    alt="Selected preview"
+                    className="h-24 w-24 rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={clearImage}
+                    className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-between gap-3">
@@ -323,6 +385,22 @@ export default function Home() {
                           <p className="mt-2 whitespace-pre-wrap wrap-break-word text-sm text-zinc-700 dark:text-zinc-300">
                             {item.message}
                           </p>
+                          {item.imageUrl && (
+                            <a
+                              href={item.imageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-3 inline-block"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={item.imageUrl}
+                                alt={`Attachment from ${item.name}`}
+                                loading="lazy"
+                                className="max-h-72 rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
+                              />
+                            </a>
+                          )}
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                           <button

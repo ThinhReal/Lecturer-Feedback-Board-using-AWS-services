@@ -7,13 +7,19 @@ import {
   DeleteCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 export const dynamic = "force-dynamic";
 
 const TABLE_NAME = "LecturerFeedback";
+const S3_BUCKET = "lecturer-feedback-assets-thinhnguyen";
+const S3_REGION = "us-east-1";
+
+// S3 client intentionally has no `credentials` so the SDK uses the EC2 IAM Role.
+const s3Client = new S3Client({ region: S3_REGION });
 
 const clientConfig: any = {
-  region: process.env.AWS_REGION || "ap-southeast-1",
+  region: process.env.AWS_REGION || "us-east-1",
 };
 
 // Chỉ chèn thông tin xác thực thủ công nếu thực sự có biến môi trường (Local)
@@ -35,6 +41,7 @@ export type FeedbackItem = {
   message: string;
   createdAt: string;
   editedAt?: string;
+  imageUrl?: string;
 };
 
 export async function GET() {
@@ -58,13 +65,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
-      name?: string;
-      message?: string;
-    };
+    const formData = await request.formData();
 
-    const name = body.name?.trim();
-    const message = body.message?.trim();
+    const name = (formData.get("name") as string | null)?.trim();
+    const message = (formData.get("message") as string | null)?.trim();
+    const imageEntry = formData.get("image");
+    const imageFile =
+      imageEntry instanceof File && imageEntry.size > 0 ? imageEntry : null;
 
     if (!name || !message) {
       return NextResponse.json(
@@ -73,11 +80,39 @@ export async function POST(request: Request) {
       );
     }
 
+    let imageUrl: string | undefined;
+
+    if (imageFile) {
+      if (!imageFile.type.startsWith("image/")) {
+        return NextResponse.json(
+          { error: "Uploaded file must be an image." },
+          { status: 400 }
+        );
+      }
+
+      const extension = getExtension(imageFile.name, imageFile.type);
+      const key = `feedback/${Date.now()}${extension}`;
+      const buffer = Buffer.from(await imageFile.arrayBuffer());
+
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: S3_BUCKET,
+          Key: key,
+          Body: buffer,
+          ContentType: imageFile.type,
+          ContentLength: buffer.length,
+        })
+      );
+
+      imageUrl = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
+    }
+
     const item: FeedbackItem = {
       id: crypto.randomUUID(),
       name,
       message,
       createdAt: new Date().toISOString(),
+      ...(imageUrl ? { imageUrl } : {}),
     };
 
     await docClient.send(
@@ -92,6 +127,22 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+function getExtension(fileName: string, mimeType: string): string {
+  const fromName = fileName.includes(".")
+    ? fileName.slice(fileName.lastIndexOf(".")).toLowerCase()
+    : "";
+  if (/^\.[a-z0-9]{2,5}$/.test(fromName)) return fromName;
+
+  const fromMime: Record<string, string> = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+  };
+  return fromMime[mimeType] ?? "";
 }
 
 export async function PUT(request: Request) {
