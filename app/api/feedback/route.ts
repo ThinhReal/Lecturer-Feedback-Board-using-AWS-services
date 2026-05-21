@@ -11,13 +11,20 @@ export const dynamic = "force-dynamic";
 
 const TABLE_NAME = "LecturerFeedback";
 
-const client = new DynamoDBClient({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? "",
-  },
-});
+const clientConfig: any = {
+  region: process.env.AWS_REGION || "ap-southeast-1",
+};
+
+// Chỉ chèn thông tin xác thực thủ công nếu thực sự có biến môi trường (Local)
+// Trên EC2, khối if này sẽ bị bỏ qua, giúp SDK tự động kích hoạt lấy quyền từ IAM Role.
+if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+  clientConfig.credentials = {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  };
+}
+
+const client = new DynamoDBClient(clientConfig);
 
 const docClient = DynamoDBDocumentClient.from(client);
 
